@@ -3,3 +3,4 @@
 /assets/brickadia
 .cache/clangd/index
 third_party/**/
+compile_commands.json
