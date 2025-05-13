@@ -5,27 +5,59 @@
 
 #include <vk_types.h>
 
+struct FrameData {
+  VkCommandPool _commandPool;
+  VkCommandBuffer _mainCommandBuffer;
+};
+
+unsigned int constexpr FRAME_OVERLAP = 2;
+
 class VulkanEngine {
 public:
+  FrameData _frame[FRAME_OVERLAP];
+  FrameData &get_current_frame() {
+    return _frame[_frameNumber % FRAME_OVERLAP];
+  }
+  VkQueue _graphicsQueue;
+  uint32_t _graphicsQueueFamily;
 
-	bool _isInitialized{ false };
-	int _frameNumber {0};
-	bool stop_rendering{ false };
-	VkExtent2D _windowExtent{ 1700 , 900 };
+  bool _isInitialized{false};
+  int _frameNumber{0};
+  bool stop_rendering{false};
+  VkExtent2D _windowExtent{1700, 900};
+  VkInstance _instance;
+  VkDebugUtilsMessengerEXT _debug_messager;
+  VkPhysicalDevice _chosenGPU;
+  VkDevice _device;
+  VkSurfaceKHR _surface;
+  VkSwapchainKHR _swapchain;
+  VkFormat _swapchainImageFormat;
 
-	struct SDL_Window* _window{ nullptr };
+  std::vector<VkImage> _swapchainImage;
+  std::vector<VkImageView> _swapchainImageViews;
+  VkExtent2D _swapchainExtent;
 
-	static VulkanEngine& Get();
+  struct SDL_Window *_window{nullptr};
 
-	//initializes everything in the engine
-	void init();
+  static VulkanEngine &Get();
 
-	//shuts down the engine
-	void cleanup();
+  // initializes everything in the engine
+  void init();
 
-	//draw loop
-	void draw();
+  // shuts down the engine
+  void cleanup();
 
-	//run main loop
-	void run();
+  // draw loop
+  void draw();
+
+  // run main loop
+  void run();
+
+private:
+  void init_vulkan();
+  void init_swapchain();
+  void init_commands();
+  void init_sync_structures();
+  void create_swapchain(uint32_t wigth, uint32_t height);
+  void destory_swapchain();
 };
