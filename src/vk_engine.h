@@ -8,16 +8,17 @@
 struct FrameData {
   VkCommandPool _commandPool;
   VkCommandBuffer _mainCommandBuffer;
+  VkSemaphore  _swapchainSemaphore, _renderSemaphore;
+  VkFence _renderFence;
 };
 
 unsigned int constexpr FRAME_OVERLAP = 2;
+#define SecondsInNano(x) (x * 1000000000LL)
 
 class VulkanEngine {
 public:
-  FrameData _frame[FRAME_OVERLAP];
-  FrameData &get_current_frame() {
-    return _frame[_frameNumber % FRAME_OVERLAP];
-  }
+  FrameData _frames[FRAME_OVERLAP];
+  FrameData &get_current_frame() { return _frames[_frameNumber % FRAME_OVERLAP]; }
   VkQueue _graphicsQueue;
   uint32_t _graphicsQueueFamily;
 

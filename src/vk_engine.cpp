@@ -17,6 +17,7 @@ auto constexpr bUseValidationLayers = true;
 }; // namespace
 
 VulkanEngine &VulkanEngine::Get() { return *loadedEngine; }
+
 void VulkanEngine::init() {
   // only one engine initialization is allowed with the application.
   assert(loadedEngine == nullptr);
@@ -46,7 +47,6 @@ void VulkanEngine::init() {
 
 void VulkanEngine::init_vulkan() {
   vkb::InstanceBuilder builder;
-
   auto const inst_ret = builder.set_app_name("Example Vulkan Application")
                             .request_validation_layers(bUseValidationLayers)
                             .use_default_debug_messenger()
@@ -82,7 +82,8 @@ void VulkanEngine::init_vulkan() {
           .set_required_features_12(features_12)
           .select();
 
-  RESULT_CHECK(physicalDevice, "Can't select suitable PhysicalDevice, errormessage: {}");
+  RESULT_CHECK(physicalDevice,
+               "Can't select suitable PhysicalDevice, errormessage: {}");
 
   vkb::DeviceBuilder deviceBuilder{*physicalDevice};
   vkb::Result<vkb::Device> vkbDevice = deviceBuilder.build();
@@ -93,12 +94,17 @@ void VulkanEngine::init_vulkan() {
   _chosenGPU = vkbDevice->physical_device;
 
   auto graphicsQueueResult = vkbDevice->get_queue(vkb::QueueType::graphics);
-  RESULT_CHECK(graphicsQueueResult, "Fail to get graphics queue, errormessage: {}");
+  RESULT_CHECK(graphicsQueueResult,
+               "Fail to get graphics queue, errormessage: {}");
 
   _graphicsQueue = *graphicsQueueResult;
 
-  auto graphicsQueueFamilyResult = vkbDevice->get_queue_index(vkb::QueueType::graphics);
-  RESULT_CHECK(graphicsQueueFamilyResult, "Failed to get Graphics Queue Family, errormessage: {}");
+  auto graphicsQueueFamilyResult =
+      vkbDevice->get_queue_index(vkb::QueueType::graphics);
+  RESULT_CHECK(graphicsQueueFamilyResult,
+               "Failed to get Graphics Queue Family, errormessage: {}");
+
+  _graphicsQueueFamily = *graphicsQueueFamilyResult;
 }
 
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
@@ -113,29 +119,18 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
           .set_desired_extent(width, height)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
           .build();
-  if (!vkbSwapchain) {
-    fmt::println(stderr, "Failed to create swapchain, errormessage: {}",
-                 vkbSwapchain.error().message());
-    std::abort();
-  }
 
+  RESULT_CHECK(vkbSwapchain, "Failed to create swapchain, errormessage: {}");
   _swapchainExtent = vkbSwapchain->extent;
   _swapchain = vkbSwapchain->swapchain;
+
   auto images = vkbSwapchain->get_images();
-  if (!images) {
-    fmt::println(stderr, "Failed to get image, errormessage: {}",
-                 images.error().message());
-    std::abort();
-  }
+  RESULT_CHECK(images, "Failed to get image, errormessage: {}");
   _swapchainImage = *images;
 
   auto image_views = vkbSwapchain->get_image_views();
 
-  if (!image_views) {
-    fmt::println(stderr, "Failed to get image view, errormessage: {}",
-                 image_views.error().message());
-    std::abort();
-  }
+  RESULT_CHECK(image_views, "Failed to get image view, errormessage: {}");
 
   _swapchainImageViews = *image_views;
 }
@@ -152,12 +147,42 @@ void VulkanEngine::destory_swapchain() {
   }
 }
 
-void VulkanEngine::init_commands() {}
+void VulkanEngine::init_commands() {
+  VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(
+      _graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-void VulkanEngine::init_sync_structures() {}
+  for (int i = 1; i < FRAME_OVERLAP; i++) {
+    VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr,
+                                 &_frames[i]._commandPool));
+
+    VkCommandBufferAllocateInfo cmdAllocInfo =
+        vkinit::command_buffer_allocate_info(_frames[i]._commandPool, 1);
+
+    VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo,
+                                      &_frames[i]._mainCommandBuffer));
+  }
+}
+
+void VulkanEngine::init_sync_structures() {
+  VkFenceCreateInfo fenceInfo =
+      vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+  VkSemaphoreCreateInfo semaphoreInfo = vkinit::semaphore_create_info();
+  for (int i = 0; i < FRAME_OVERLAP; i++) {
+    VK_CHECK(
+        vkCreateFence(_device, &fenceInfo, nullptr, &_frames[i]._renderFence));
+    VK_CHECK(vkCreateSemaphore(_device, &semaphoreInfo, nullptr,
+                               &_frames[i]._renderSemaphore));
+    VK_CHECK(vkCreateSemaphore(_device, &semaphoreInfo, nullptr,
+                               &_frames[i]._swapchainSemaphore));
+  }
+}
 
 void VulkanEngine::cleanup() {
   if (_isInitialized) {
+    vkDeviceWaitIdle(_device);
+    for (auto &f : _frames) {
+      vkDestroyCommandPool(_device, f._commandPool, nullptr);
+    }
     destory_swapchain();
     vkDestroySurfaceKHR(_instance, _surface, nullptr);
     vkDestroyDevice(_device, nullptr);
@@ -172,7 +197,16 @@ void VulkanEngine::cleanup() {
 }
 
 void VulkanEngine::draw() {
-  // nothing yet
+  VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true,
+                           SecondsInNano(1)));
+  VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
+
+  uint32_t swapchainImageIndex;
+  VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, SecondsInNano(1),
+                                 get_current_frame()._swapchainSemaphore,
+                                 VK_NULL_HANDLE, &swapchainImageIndex));
+  VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
+  VK_CHECK(vkResetCommandBuffer(cmd, 0));
 }
 
 void VulkanEngine::run() {
