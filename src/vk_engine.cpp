@@ -205,8 +205,13 @@ void VulkanEngine::draw() {
   VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, SecondsInNano(1),
                                  get_current_frame()._swapchainSemaphore,
                                  VK_NULL_HANDLE, &swapchainImageIndex));
+
   VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+  VkCommandBufferBeginInfo beginInfo = vkinit::command_buffer_begin_info(
+      VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 }
 
 void VulkanEngine::run() {
