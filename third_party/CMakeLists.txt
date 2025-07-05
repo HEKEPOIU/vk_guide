@@ -6,18 +6,21 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG        release-2.32.6
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/SDL
+    SYSTEM
 )
 FetchContent_Declare(
     vkbootstrap
     GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
     GIT_TAG        v1.4.314
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/vkbootstrap
+    SYSTEM
 )
 FetchContent_Declare(
     glm
     GIT_REPOSITORY	https://github.com/g-truc/glm.git
     GIT_TAG 	1.0.1
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/glm
+    SYSTEM
 )
 
 FetchContent_Declare(
@@ -25,6 +28,7 @@ FetchContent_Declare(
     GIT_REPOSITORY	https://github.com/fmtlib/fmt.git
     GIT_TAG 	11.2.0
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/fmt
+    SYSTEM
 )
 
 FetchContent_Declare(
@@ -32,6 +36,7 @@ FetchContent_Declare(
     GIT_REPOSITORY  https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
     GIT_TAG v3.2.1
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/vma
+    SYSTEM
 )
 
 FetchContent_Declare(
@@ -39,6 +44,7 @@ FetchContent_Declare(
     GIT_REPOSITORY  https://github.com/spnda/fastgltf.git
     GIT_TAG v0.8.0
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/fastgltf
+    SYSTEM
 )
 
 FetchContent_MakeAvailable(SDL vkbootstrap glm fmt vma fastgltf)

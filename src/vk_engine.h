@@ -5,11 +5,25 @@
 
 #include <vk_types.h>
 
+struct DeletionQueue {
+  std::deque<std::function<void()>> deletors;
+  void push_function(std::function<void()> &&function) {
+    deletors.push_back(std::move(function));
+  }
+  void flush() {
+    for (auto it = deletors.rbegin(); it != deletors.rend(); ++it) {
+      (*it)();
+    }
+    deletors.clear();
+  }
+};
+
 struct FrameData {
   VkCommandPool _commandPool;
   VkCommandBuffer _mainCommandBuffer;
-  VkSemaphore  _swapchainSemaphore, _renderSemaphore;
+  VkSemaphore _swapchainSemaphore, _renderSemaphore;
   VkFence _renderFence;
+  DeletionQueue _deletionQueue;
 };
 
 #define SecondsInNano(x) (x * 1000000000LL)
@@ -17,7 +31,9 @@ struct FrameData {
 class VulkanEngine {
 public:
   std::vector<FrameData> _frames;
-  inline FrameData &get_current_frame() { return _frames[_frameNumber % _frames.size()]; }
+  inline FrameData &get_current_frame() {
+    return _frames[_frameNumber % _frames.size()];
+  }
   inline uint32_t get_frame_overlap() { return _frames.size(); }
   VkQueue _graphicsQueue;
   uint32_t _graphicsQueueFamily;
@@ -37,6 +53,10 @@ public:
   std::vector<VkImage> _swapchainImage;
   std::vector<VkImageView> _swapchainImageViews;
   VkExtent2D _swapchainExtent;
+  DeletionQueue _mainDeletionQueue;
+  VmaAllocator _allocator;
+  AllocatedImage _drawImage;
+  VkExtent2D _drawExtent;
 
   struct SDL_Window *_window{nullptr};
 
@@ -59,6 +79,7 @@ private:
   void init_swapchain();
   void init_commands();
   void init_sync_structures();
+  void draw_background(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destory_swapchain();
 };

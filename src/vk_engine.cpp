@@ -11,12 +11,14 @@
 #include "VkBootstrap.h"
 #include <chrono>
 #include <thread>
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 namespace {
 VulkanEngine *loadedEngine = nullptr;
 auto constexpr bUseValidationLayers = true;
-uint32_t get_minmum_surface_image_count(VkPhysicalDevice device,
-                                        VkSurfaceKHR surface) {
+uint32_t get_minimum_surface_image_count(VkPhysicalDevice device,
+                                         VkSurfaceKHR surface) {
   VkSurfaceCapabilitiesKHR cap;
   VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &cap));
   return cap.minImageCount;
@@ -113,12 +115,22 @@ void VulkanEngine::init_vulkan() {
                "Failed to get Graphics Queue Family, errormessage: {}");
 
   _graphicsQueueFamily = *graphicsQueueFamilyResult;
+  VmaAllocatorCreateInfo allocatorInfo{
+      .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+      .physicalDevice = _chosenGPU,
+      .device = _device,
+      .instance = _instance,
+  };
+  vmaCreateAllocator(&allocatorInfo, &_allocator);
+  _mainDeletionQueue.push_function(
+      [this]() { vmaDestroyAllocator(_allocator); });
 }
 
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
   vkb::SwapchainBuilder swapchainBuilder{_chosenGPU, _device, _surface};
   _swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
-  uint32_t minImageCount = get_minmum_surface_image_count(_chosenGPU, _surface);
+  uint32_t minImageCount =
+      get_minimum_surface_image_count(_chosenGPU, _surface);
   vkb::Result<vkb::Swapchain> vkbSwapchain =
       swapchainBuilder
           .set_desired_format(VkSurfaceFormatKHR{
@@ -148,6 +160,44 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
 
 void VulkanEngine::init_swapchain() {
   create_swapchain(_windowExtent.width, _windowExtent.height);
+  VkExtent3D drawImageExtent{
+      .width = _windowExtent.width,
+      .height = _windowExtent.height,
+      .depth = 1,
+  };
+  _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+  _drawImage.imageExtent = drawImageExtent;
+
+  VkImageUsageFlags drawImageUsages{};
+  drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+  drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+  VkImageCreateInfo rimg_info = vkinit::image_create_info(
+      _drawImage.imageFormat, drawImageUsages, drawImageExtent);
+  // GPU VRAM Contain an "Upload Heap" it can be accessed by CPU with PCIE Bus,
+  // And that heap size can be control in BIOS or driver panel call "resizable
+  // bar".
+
+  // So Memory layout like this:
+  //                  CPU Ram                                     | GPU VRAM
+  //  Host Only Memory  | Device can access Host Memory | - Connect by PCIE -  |
+  //  Upload Heap | rest of GPU VRAM
+  VmaAllocationCreateInfo rimg_allocinfo{
+      .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+      .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT};
+  vmaCreateImage(_allocator, &rimg_info, &rimg_allocinfo, &_drawImage.image,
+                 &_drawImage.allocation, nullptr);
+  VkImageViewCreateInfo rview_info = vkinit::imageview_create_info(
+      _drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+
+  VK_CHECK(
+      vkCreateImageView(_device, &rview_info, nullptr, &_drawImage.imageView));
+  _mainDeletionQueue.push_function([=, this]() {
+    vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+    vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+  });
 }
 
 void VulkanEngine::destory_swapchain() {
@@ -192,14 +242,14 @@ void VulkanEngine::cleanup() {
   if (_isInitialized) {
     vkDeviceWaitIdle(_device);
     for (int i = 0; i < get_frame_overlap(); i++) {
+      vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
       vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
       vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
       vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
+      _frames[i]._deletionQueue.flush();
     }
+    _mainDeletionQueue.flush();
 
-    for (auto &f : _frames) {
-      vkDestroyCommandPool(_device, f._commandPool, nullptr);
-    }
     destory_swapchain();
     vkDestroySurfaceKHR(_instance, _surface, nullptr);
     vkDestroyDevice(_device, nullptr);
@@ -212,10 +262,20 @@ void VulkanEngine::cleanup() {
   // clear engine pointer
   loadedEngine = nullptr;
 }
+void VulkanEngine::draw_background(VkCommandBuffer cmd) {
+  VkClearColorValue clearValue{};
+  float flash = std::abs(std::sin(_frameNumber / 120.0f));
+  clearValue = {{0.0f, 0.0f, flash, 1.0f}};
+  VkImageSubresourceRange clearRange =
+      vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+  vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL,
+                       &clearValue, 1, &clearRange);
+}
 
 void VulkanEngine::draw() {
   VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true,
                            SecondsInNano(1)));
+  get_current_frame()._deletionQueue.flush();
   VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
   uint32_t swapchainImageIndex;
@@ -228,22 +288,29 @@ void VulkanEngine::draw() {
 
   VkCommandBufferBeginInfo beginInfo = vkinit::command_buffer_begin_info(
       VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+  _drawExtent.width = _drawImage.imageExtent.width;
+  _drawExtent.height = _drawImage.imageExtent.height;
   VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
-  vkutil::transition_image(cmd, _swapchainImage[swapchainImageIndex],
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                           VK_IMAGE_LAYOUT_GENERAL);
 
-  VkClearValue clearValue{};
-  float flash = std::abs(std::sin(_frameNumber / 120.0f));
-  clearValue = {.color = {0.0f, 0.0f, flash, 1.0f}};
-  VkImageSubresourceRange clearRange =
-      vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-  vkCmdClearColorImage(cmd, _swapchainImage[swapchainImageIndex],
-                       VK_IMAGE_LAYOUT_GENERAL, &clearValue.color, 1,
-                       &clearRange);
+  // draw command
+  draw_background(cmd);
+
+  vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   vkutil::transition_image(cmd, _swapchainImage[swapchainImageIndex],
-                           VK_IMAGE_LAYOUT_GENERAL,
+                           VK_IMAGE_LAYOUT_UNDEFINED,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vkutil::copy_image_to_image(cmd, _drawImage.image,
+                              _swapchainImage[swapchainImageIndex], _drawExtent,
+                              _swapchainExtent);
+  vkutil::transition_image(cmd, _swapchainImage[swapchainImageIndex],
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
   VK_CHECK(vkEndCommandBuffer(cmd));
   VkCommandBufferSubmitInfo cmdinfo = vkinit::command_buffer_submit_info(cmd);
   VkSemaphoreSubmitInfo waitInfo = vkinit::semaphore_submit_info(
