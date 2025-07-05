@@ -12,20 +12,20 @@ struct FrameData {
   VkFence _renderFence;
 };
 
-unsigned int constexpr FRAME_OVERLAP = 2;
 #define SecondsInNano(x) (x * 1000000000LL)
 
 class VulkanEngine {
 public:
-  FrameData _frames[FRAME_OVERLAP];
-  FrameData &get_current_frame() { return _frames[_frameNumber % FRAME_OVERLAP]; }
+  std::vector<FrameData> _frames;
+  inline FrameData &get_current_frame() { return _frames[_frameNumber % _frames.size()]; }
+  inline uint32_t get_frame_overlap() { return _frames.size(); }
   VkQueue _graphicsQueue;
   uint32_t _graphicsQueueFamily;
 
   bool _isInitialized{false};
   int _frameNumber{0};
   bool stop_rendering{false};
-  VkExtent2D _windowExtent{1700, 900};
+  VkExtent2D _windowExtent{800, 600};
   VkInstance _instance;
   VkDebugUtilsMessengerEXT _debug_messager;
   VkPhysicalDevice _chosenGPU;

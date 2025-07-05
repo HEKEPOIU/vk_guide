@@ -15,6 +15,13 @@
 namespace {
 VulkanEngine *loadedEngine = nullptr;
 auto constexpr bUseValidationLayers = true;
+uint32_t get_minmum_surface_image_count(VkPhysicalDevice device,
+                                        VkSurfaceKHR surface) {
+  VkSurfaceCapabilitiesKHR cap;
+  VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &cap));
+  return cap.minImageCount;
+}
+
 }; // namespace
 
 VulkanEngine &VulkanEngine::Get() { return *loadedEngine; }
@@ -111,6 +118,7 @@ void VulkanEngine::init_vulkan() {
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
   vkb::SwapchainBuilder swapchainBuilder{_chosenGPU, _device, _surface};
   _swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+  uint32_t minImageCount = get_minmum_surface_image_count(_chosenGPU, _surface);
   vkb::Result<vkb::Swapchain> vkbSwapchain =
       swapchainBuilder
           .set_desired_format(VkSurfaceFormatKHR{
@@ -119,6 +127,7 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
           .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
           .set_desired_extent(width, height)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+          .set_desired_min_image_count(minImageCount + 1)
           .build();
 
   RESULT_CHECK(vkbSwapchain, "Failed to create swapchain, errormessage: {}");
@@ -134,6 +143,7 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
   RESULT_CHECK(image_views, "Failed to get image view, errormessage: {}");
 
   _swapchainImageViews = *image_views;
+  _frames.resize(_swapchainImage.size());
 }
 
 void VulkanEngine::init_swapchain() {
@@ -152,7 +162,7 @@ void VulkanEngine::init_commands() {
   VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(
       _graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-  for (int i = 0; i < FRAME_OVERLAP; i++) {
+  for (int i = 0; i < get_frame_overlap(); i++) {
     VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr,
                                  &_frames[i]._commandPool));
 
@@ -168,7 +178,7 @@ void VulkanEngine::init_sync_structures() {
   VkFenceCreateInfo fenceInfo =
       vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
   VkSemaphoreCreateInfo semaphoreInfo = vkinit::semaphore_create_info();
-  for (int i = 0; i < FRAME_OVERLAP; i++) {
+  for (int i = 0; i < get_frame_overlap(); i++) {
     VK_CHECK(
         vkCreateFence(_device, &fenceInfo, nullptr, &_frames[i]._renderFence));
     VK_CHECK(vkCreateSemaphore(_device, &semaphoreInfo, nullptr,
@@ -180,14 +190,13 @@ void VulkanEngine::init_sync_structures() {
 
 void VulkanEngine::cleanup() {
   if (_isInitialized) {
-    for(int i = 0; i < FRAME_OVERLAP; i++){
-      vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+    vkDeviceWaitIdle(_device);
+    for (int i = 0; i < get_frame_overlap(); i++) {
       vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
       vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
       vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
     }
 
-    vkDeviceWaitIdle(_device);
     for (auto &f : _frames) {
       vkDestroyCommandPool(_device, f._commandPool, nullptr);
     }
