@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "vk_descriptors.h"
 #include <vk_types.h>
 
 struct DeletionQueue {
@@ -57,6 +58,13 @@ public:
   VmaAllocator _allocator;
   AllocatedImage _drawImage;
   VkExtent2D _drawExtent;
+  DescriptorAllocator _globalDescriptorAllocator;
+
+  VkDescriptorSet _drawImageDescriptors;
+  VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+  VkPipeline _gradientPipeline;
+  VkPipelineLayout _gradientPipelineLayout;
 
   struct SDL_Window *_window{nullptr};
 
@@ -75,10 +83,13 @@ public:
   void run();
 
 private:
+  void init_pipelines();
+  void init_background_pipeline();
   void init_vulkan();
   void init_swapchain();
   void init_commands();
   void init_sync_structures();
+  void init_descriptors();
   void draw_background(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destory_swapchain();

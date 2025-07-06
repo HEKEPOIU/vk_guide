@@ -9,11 +9,13 @@
 #include <vk_types.h>
 
 #include "VkBootstrap.h"
+#include "vk_pipelines.h"
 #include <chrono>
 #include <thread>
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#include "constant.h"
 namespace {
 VulkanEngine *loadedEngine = nullptr;
 auto constexpr bUseValidationLayers = true;
@@ -50,9 +52,91 @@ void VulkanEngine::init() {
   init_swapchain();
   init_commands();
   init_sync_structures();
+  init_descriptors();
+  init_pipelines();
 
   // everything went fine
   _isInitialized = true;
+}
+
+void VulkanEngine::init_pipelines() { init_background_pipeline(); }
+
+void VulkanEngine::init_background_pipeline() {
+  VkPipelineLayoutCreateInfo computeLayout{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 1,
+      .pSetLayouts = &_drawImageDescriptorLayout,
+  };
+  VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr,
+                                  &_gradientPipelineLayout));
+
+  VkShaderModule computeDrawShader;
+
+  auto shaderPath = (engine_constant::GetShaderRoot() / "gradient.spv");
+  if (!vkutil::load_shader_module(_device, shaderPath.c_str(), &computeDrawShader)) {
+    fmt::print(stderr, "Error when building the compute shader, Can't load "
+                       "gradient.spv \n");
+  }
+
+  VkPipelineShaderStageCreateInfo stageinfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+      .module = computeDrawShader,
+      .pName = "main"};
+
+  VkComputePipelineCreateInfo computePipelineCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = stageinfo,
+      .layout = _gradientPipelineLayout,
+  };
+  VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1,
+                                    &computePipelineCreateInfo, nullptr,
+                                    &_gradientPipeline));
+  vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+  _mainDeletionQueue.push_function([=, this]() {
+    vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
+    vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+  });
+}
+
+void VulkanEngine::init_descriptors() {
+  std::vector<DescriptorAllocator::PoolSizeRatio> sizes{
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1}};
+
+  _globalDescriptorAllocator.init_pool(_device, 10, sizes);
+
+  {
+    DescriptorLayoutBuilder builder;
+    builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    _drawImageDescriptorLayout =
+        builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
+  }
+  _drawImageDescriptors =
+      _globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
+
+  VkDescriptorImageInfo imgInfo{
+      .imageView = _drawImage.imageView,
+      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+  };
+
+  VkWriteDescriptorSet drawImageWrite{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = _drawImageDescriptors,
+      .dstBinding = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      .pImageInfo = &imgInfo,
+  };
+  vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+
+  _mainDeletionQueue.push_function([=, this]() {
+    _globalDescriptorAllocator.destroy_pool(_device);
+    vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+  });
 }
 
 void VulkanEngine::init_vulkan() {
@@ -180,10 +264,11 @@ void VulkanEngine::init_swapchain() {
   // And that heap size can be control in BIOS or driver panel call "resizable
   // bar".
 
+  // clang-format off
   // So Memory layout like this:
-  //                  CPU Ram                                     | GPU VRAM
-  //  Host Only Memory  | Device can access Host Memory | - Connect by PCIE -  |
-  //  Upload Heap | rest of GPU VRAM
+  //                  CPU Ram                                     |               GPU VRAM
+  //  Host Only Memory  | Device can access Host Memory | - Connect by PCIE -  | Upload Heap | rest of GPU VRAM
+  // clang-format on
   VmaAllocationCreateInfo rimg_allocinfo{
       .usage = VMA_MEMORY_USAGE_GPU_ONLY,
       .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT};
@@ -268,8 +353,15 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd) {
   clearValue = {{0.0f, 0.0f, flash, 1.0f}};
   VkImageSubresourceRange clearRange =
       vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
   vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL,
                        &clearValue, 1, &clearRange);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          _gradientPipelineLayout, 0, 1, &_drawImageDescriptors,
+                          0, nullptr);
+  vkCmdDispatch(cmd, std::ceil(float(_drawImage.imageExtent.width) / 16.0f),
+                std::ceil(float(_drawImage.imageExtent.height) / 16.0f), 1);
 }
 
 void VulkanEngine::draw() {
