@@ -60,6 +60,10 @@ public:
   VkExtent2D _drawExtent;
   DescriptorAllocator _globalDescriptorAllocator;
 
+  VkFence _immFence;
+  VkCommandBuffer _immCommandBuffer;
+  VkCommandPool _immCommandPool;
+
   VkDescriptorSet _drawImageDescriptors;
   VkDescriptorSetLayout _drawImageDescriptorLayout;
 
@@ -70,6 +74,7 @@ public:
 
   static VulkanEngine &Get();
 
+  void immediate_submit(std::function<void (VkCommandBuffer cmd)> && function);
   // initializes everything in the engine
   void init();
 
@@ -83,6 +88,8 @@ public:
   void run();
 
 private:
+  void init_imgui();
+  void draw_imgui(VkCommandBuffer cmd, VkImageView image);
   void init_pipelines();
   void init_background_pipeline();
   void init_vulkan();
