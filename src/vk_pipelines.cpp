@@ -1,9 +1,9 @@
 ﻿#include <fstream>
 #include <vk_pipelines.h>
 
-bool vkutil::load_shader_module(VkDevice device, const char *filePath,
+bool vkutil::load_shader_module(VkDevice device, std::string_view filePath,
                                 VkShaderModule *outShaderModule) {
-  std::ifstream file(filePath, std::ios::ate | std::ios::binary);
+  std::ifstream file(filePath.data(), std::ios::ate | std::ios::binary);
 
   if (!file.is_open()) {
     return false;

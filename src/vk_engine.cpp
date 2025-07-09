@@ -31,16 +31,16 @@ uint32_t get_minimum_surface_image_count(VkPhysicalDevice device,
 
 VkComputePipelineCreateInfo
 get_compute_pipeline_create_info(VkDevice _device, VkPipelineLayout layout,
-                       std::string_view shaderPath) {
+                                 std::string_view shaderPath) {
   VkShaderModule computeDrawShader;
 
   auto absPath = (engine_constant::GetShaderRoot() / shaderPath);
-  if (!vkutil::load_shader_module(_device, absPath.c_str(),
+  if (!vkutil::load_shader_module(_device, absPath.string(),
                                   &computeDrawShader)) {
     fmt::print(stderr,
                "Error when building the compute shader, Can't load "
                "{} \n",
-               absPath.c_str());
+               absPath.string());
   }
 
   VkPipelineShaderStageCreateInfo stageinfo{
@@ -176,11 +176,11 @@ void VulkanEngine::init_background_pipeline() {
 
   VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr,
                                   &_gradientPipelineLayout));
-  auto gradientPipelineCreateInfo =
-      get_compute_pipeline_create_info(_device, _gradientPipelineLayout, "gradient_color.spv");
+  auto gradientPipelineCreateInfo = get_compute_pipeline_create_info(
+      _device, _gradientPipelineLayout, "gradient_color.spv");
 
-  auto skyPipelineCreateInfo =
-      get_compute_pipeline_create_info(_device, _gradientPipelineLayout, "sky.spv");
+  auto skyPipelineCreateInfo = get_compute_pipeline_create_info(
+      _device, _gradientPipelineLayout, "sky.spv");
 
   ComputeEffect gradient{
       .name = "gradient",
@@ -211,7 +211,8 @@ void VulkanEngine::init_background_pipeline() {
   backgroundEffects.push_back(gradient);
   backgroundEffects.push_back(sky);
 
-  vkDestroyShaderModule(_device, gradientPipelineCreateInfo.stage.module, nullptr);
+  vkDestroyShaderModule(_device, gradientPipelineCreateInfo.stage.module,
+                        nullptr);
   vkDestroyShaderModule(_device, skyPipelineCreateInfo.stage.module, nullptr);
   _mainDeletionQueue.push_function([=, this]() {
     vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
@@ -335,16 +336,16 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
   vkb::SwapchainBuilder swapchainBuilder{_chosenGPU, _device, _surface};
   _swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
   uint32_t minImageCount =
-      get_minimum_surface_image_count(_chosenGPU, _surface);
+      get_minimum_surface_image_count(_chosenGPU, _surface) + 1;
   vkb::Result<vkb::Swapchain> vkbSwapchain =
       swapchainBuilder
           .set_desired_format(VkSurfaceFormatKHR{
               .format = _swapchainImageFormat,
               .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-          .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+          .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
           .set_desired_extent(width, height)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-          .set_desired_min_image_count(minImageCount + 1)
+          .set_desired_min_image_count(minImageCount)
           .build();
 
   RESULT_CHECK(vkbSwapchain, "Failed to create swapchain, errormessage: {}");
@@ -502,7 +503,7 @@ void VulkanEngine::cleanup() {
   loadedEngine = nullptr;
 }
 void VulkanEngine::draw_background(VkCommandBuffer cmd) {
-    ComputeEffect& effect = backgroundEffects[currentEffectIndex];
+  ComputeEffect &effect = backgroundEffects[currentEffectIndex];
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           _gradientPipelineLayout, 0, 1, &_drawImageDescriptors,
@@ -515,14 +516,24 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd) {
 
 void VulkanEngine::draw() {
   VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true,
-                           SecondsInNano(1)));
-  get_current_frame()._deletionQueue.flush();
+                           SecondsInNano(100)));
   VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
   uint32_t swapchainImageIndex;
-  VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, SecondsInNano(1),
+  VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
                                  get_current_frame()._swapchainSemaphore,
                                  VK_NULL_HANDLE, &swapchainImageIndex));
+
+  //TODO: Rewrite the sync way.
+  // WIndows Nvidia FIFO will cause vkAcquireNextImageKHR impl not block
+  // until next available presentImage, vkAcquireNextImageKHR never
+  // block image, it block on QueuePresent.
+  // so it will return same imageIndex in two frame.
+  // and current our synchronize way need to assert that swapchainImageIndex always +1 % totalImageSize.
+  // so we change windows presentMode to MAILBOX.
+  assert(swapchainImageIndex == _frameNumber % _frames.size());
+
+  get_current_frame()._deletionQueue.flush();
 
   VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
   VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -567,6 +578,7 @@ void VulkanEngine::draw() {
   VkSubmitInfo2 submit = vkinit::submit_info(&cmdinfo, &signalInfo, &waitInfo);
   VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit,
                           get_current_frame()._renderFence));
+
   VkPresentInfoKHR presentInfo = {
       .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
       .pNext = nullptr,
@@ -614,15 +626,15 @@ void VulkanEngine::run() {
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
     if (ImGui::Begin("background")) {
-        ComputeEffect& effect = backgroundEffects[currentEffectIndex];
-        ImGui::Text("Selected effect: %s", effect.name);
-        ImGui::SliderInt("Effect Index", &currentEffectIndex, 0, backgroundEffects.size() - 1);
+      ComputeEffect &effect = backgroundEffects[currentEffectIndex];
+      ImGui::Text("Selected effect: %s", effect.name);
+      ImGui::SliderInt("Effect Index", &currentEffectIndex, 0,
+                       backgroundEffects.size() - 1);
 
-        ImGui::InputFloat4("data1", (float *)&effect.data.data1);
-        ImGui::InputFloat4("data2", (float *)&effect.data.data2);
-        ImGui::InputFloat4("data3", (float *)&effect.data.data3);
-        ImGui::InputFloat4("data4", (float *)&effect.data.data4);
-
+      ImGui::InputFloat4("data1", (float *)&effect.data.data1);
+      ImGui::InputFloat4("data2", (float *)&effect.data.data2);
+      ImGui::InputFloat4("data3", (float *)&effect.data.data3);
+      ImGui::InputFloat4("data4", (float *)&effect.data.data4);
     }
     ImGui::End();
     ImGui::Render();
