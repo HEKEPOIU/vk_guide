@@ -5,6 +5,19 @@
 
 #include "vk_descriptors.h"
 #include <vk_types.h>
+struct ComputePushConstants {
+  glm::vec4 data1;
+  glm::vec4 data2;
+  glm::vec4 data3;
+  glm::vec4 data4;
+};
+
+struct ComputeEffect {
+  const char *name;
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  ComputePushConstants data;
+};
 
 struct DeletionQueue {
   std::deque<std::function<void()>> deletors;
@@ -31,6 +44,8 @@ struct FrameData {
 
 class VulkanEngine {
 public:
+  std::vector<ComputeEffect> backgroundEffects;
+  int currentEffectIndex{0};
   std::vector<FrameData> _frames;
   inline FrameData &get_current_frame() {
     return _frames[_frameNumber % _frames.size()];
