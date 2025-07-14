@@ -156,7 +156,61 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView image) {
   vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::init_pipelines() { init_background_pipeline(); }
+void VulkanEngine::init_pipelines() {
+  init_background_pipeline();
+  init_triangle_pipeline();
+}
+
+void VulkanEngine::init_triangle_pipeline() {
+  VkShaderModule vertexShader;
+  VkShaderModule fragmentShader;
+  auto fragAbsPath =
+      (engine_constant::GetShaderRoot() / "colored_triangle_frag.spv");
+  auto vertAbsPath =
+      (engine_constant::GetShaderRoot() / "colored_triangle_vert.spv");
+  if (!vkutil::load_shader_module(_device, fragAbsPath.string(),
+                                  &fragmentShader)) {
+    fmt::print(stderr,
+               "Error when building the fragment shader, Can't load "
+               "{} \n",
+               fragAbsPath.string());
+  }
+  if (!vkutil::load_shader_module(_device, vertAbsPath.string(),
+                                  &vertexShader)) {
+    fmt::print(stderr,
+               "Error when building the vertex shader, Can't load "
+               "{} \n",
+               vertAbsPath.string());
+  }
+
+  VkPipelineLayoutCreateInfo pipeline_layout_info{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+  };
+  VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr,
+                                  &_trianglePipelineLayout));
+
+  vkutil::PipelineBuilder builder;
+  builder._pipelineLayout = _trianglePipelineLayout;
+  builder.set_shader(vertexShader, fragmentShader);
+  builder.set_input_toplogy(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+  builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.set_multisample_none();
+  builder.disable_blending();
+  builder.disable_depthtest();
+  builder.set_color_attachment_format(_drawImage.imageFormat);
+  builder.set_depth_format(VK_FORMAT_UNDEFINED);
+  _trianglePipeline = builder.build_pipeline(_device);
+  assert(_trianglePipeline);
+
+  vkDestroyShaderModule(_device, vertexShader, nullptr);
+  vkDestroyShaderModule(_device, fragmentShader, nullptr);
+
+  _mainDeletionQueue.push_function([=, this]() {
+    vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+    vkDestroyPipeline(_device, _trianglePipeline, nullptr);
+  });
+}
 
 void VulkanEngine::init_background_pipeline() {
 
@@ -514,6 +568,35 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd) {
                 std::ceil(float(_drawImage.imageExtent.height) / 16.0f), 1);
 }
 
+void VulkanEngine::draw_geometry(VkCommandBuffer cmd) {
+  VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(
+      _drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  VkRenderingInfo renderInfo =
+      vkinit::rendering_info(_drawExtent, &colorAttachment, nullptr);
+  vkCmdBeginRendering(cmd, &renderInfo);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+
+  VkViewport viewport{
+      .x = 0.0f,
+      .y = 0.0f,
+      .width = static_cast<float>(_drawExtent.width),
+      .height = static_cast<float>(_drawExtent.height),
+      .minDepth = 0.0f,
+      .maxDepth = 1.0f,
+  };
+
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  VkRect2D scissor{
+      .offset = {0, 0},
+      .extent = _drawExtent,
+  };
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdEndRendering(cmd);
+}
+
 void VulkanEngine::draw() {
   VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true,
                            SecondsInNano(100)));
@@ -524,13 +607,13 @@ void VulkanEngine::draw() {
                                  get_current_frame()._swapchainSemaphore,
                                  VK_NULL_HANDLE, &swapchainImageIndex));
 
-  //TODO: Rewrite the sync way.
-  // WIndows Nvidia FIFO will cause vkAcquireNextImageKHR impl not block
-  // until next available presentImage, vkAcquireNextImageKHR never
-  // block image, it block on QueuePresent.
-  // so it will return same imageIndex in two frame.
-  // and current our synchronize way need to assert that swapchainImageIndex always +1 % totalImageSize.
-  // so we change windows presentMode to MAILBOX.
+  // TODO: Rewrite the sync way.
+  //  WIndows Nvidia FIFO will cause vkAcquireNextImageKHR impl not block
+  //  until next available presentImage, vkAcquireNextImageKHR never
+  //  block image, it block on QueuePresent.
+  //  so it will return same imageIndex in two frame.
+  //  and current our synchronize way need to assert that swapchainImageIndex
+  //  always +1 % totalImageSize. so we change windows presentMode to MAILBOX.
   assert(swapchainImageIndex == _frameNumber % _frames.size());
 
   get_current_frame()._deletionQueue.flush();
@@ -552,6 +635,11 @@ void VulkanEngine::draw() {
   draw_background(cmd);
 
   vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  draw_geometry(cmd);
+
+  vkutil::transition_image(cmd, _drawImage.image,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   vkutil::transition_image(cmd, _swapchainImage[swapchainImageIndex],
                            VK_IMAGE_LAYOUT_UNDEFINED,

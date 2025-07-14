@@ -84,6 +84,8 @@ public:
 
   VkPipeline _gradientPipeline;
   VkPipelineLayout _gradientPipelineLayout;
+  VkPipelineLayout _trianglePipelineLayout;
+  VkPipeline _trianglePipeline;
 
   struct SDL_Window *_window{nullptr};
 
@@ -112,7 +114,9 @@ private:
   void init_commands();
   void init_sync_structures();
   void init_descriptors();
+  void init_triangle_pipeline();
   void draw_background(VkCommandBuffer cmd);
+  void draw_geometry(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destory_swapchain();
 };

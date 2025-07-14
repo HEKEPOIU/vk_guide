@@ -15,12 +15,13 @@ set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
 add_subdirectory(src)
 
-find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin /opt/homebrew/bin/ $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
+find_program(GLSL_VALIDATOR glslc HINTS /usr/bin /usr/local/bin /opt/homebrew/bin/ $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 
 
 
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES
+    "${PROJECT_SOURCE_DIR}/shaders/*.glsl"
     "${PROJECT_SOURCE_DIR}/shaders/*.frag"
     "${PROJECT_SOURCE_DIR}/shaders/*.vert"
     "${PROJECT_SOURCE_DIR}/shaders/*.comp"
@@ -33,7 +34,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   message(STATUS ${GLSL})
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
+    COMMAND ${GLSL_VALIDATOR} ${GLSL} -o ${SPIRV}
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
