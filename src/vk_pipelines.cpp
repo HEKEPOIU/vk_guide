@@ -111,7 +111,7 @@ void PipelineBuilder::set_shader(VkShaderModule vertexShader,
   _shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(
       VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader));
 }
-void PipelineBuilder::set_input_toplogy(VkPrimitiveTopology topology) {
+void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology) {
   _inputAssembly.topology = topology;
   _inputAssembly.primitiveRestartEnable = VK_FALSE;
 }

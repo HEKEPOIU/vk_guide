@@ -84,8 +84,13 @@ public:
 
   VkPipeline _gradientPipeline;
   VkPipelineLayout _gradientPipelineLayout;
-  VkPipelineLayout _trianglePipelineLayout;
+
   VkPipeline _trianglePipeline;
+  VkPipelineLayout _trianglePipelineLayout;
+
+  VkPipeline _meshPipeline;
+  VkPipelineLayout _meshPipelineLayout;
+  GPUMeshBuffer rectangle;
 
   struct SDL_Window *_window{nullptr};
 
@@ -105,18 +110,23 @@ public:
   void run();
 
 private:
+  AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+  GPUMeshBuffer uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+  void init_default_data();
   void init_imgui();
   void draw_imgui(VkCommandBuffer cmd, VkImageView image);
   void init_pipelines();
-  void init_background_pipeline();
   void init_vulkan();
   void init_swapchain();
   void init_commands();
   void init_sync_structures();
   void init_descriptors();
+  void init_mesh_pipeline();
+  void init_background_pipeline();
   void init_triangle_pipeline();
   void draw_background(VkCommandBuffer cmd);
   void draw_geometry(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destory_swapchain();
+  void destroy_buffer(const AllocatedBuffer &buffer);
 };

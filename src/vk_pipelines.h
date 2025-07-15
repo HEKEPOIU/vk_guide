@@ -18,7 +18,7 @@ namespace vkutil {
       VkFormat _colorAttachmentFormat;
       PipelineBuilder(){clear();};
       void set_shader(VkShaderModule vertexShader, VkShaderModule fragmentShader);
-      void set_input_toplogy(VkPrimitiveTopology topology);
+      void set_input_topology(VkPrimitiveTopology topology);
       void set_polygon_mode(VkPolygonMode polygonMode);
       void set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace);
       void set_multisample_none();
