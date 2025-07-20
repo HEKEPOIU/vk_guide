@@ -4,6 +4,7 @@
 #pragma once
 
 #include "vk_descriptors.h"
+#include "vk_loader.h"
 #include <vk_types.h>
 struct ComputePushConstants {
   glm::vec4 data1;
@@ -72,6 +73,7 @@ public:
   DeletionQueue _mainDeletionQueue;
   VmaAllocator _allocator;
   AllocatedImage _drawImage;
+  AllocatedImage _depthImage;
   VkExtent2D _drawExtent;
   DescriptorAllocator _globalDescriptorAllocator;
 
@@ -85,18 +87,19 @@ public:
   VkPipeline _gradientPipeline;
   VkPipelineLayout _gradientPipelineLayout;
 
-  VkPipeline _trianglePipeline;
-  VkPipelineLayout _trianglePipelineLayout;
-
   VkPipeline _meshPipeline;
   VkPipelineLayout _meshPipelineLayout;
   GPUMeshBuffer rectangle;
+
+  std::vector<std::shared_ptr<MeshAsset>> testMeshes;
 
   struct SDL_Window *_window{nullptr};
 
   static VulkanEngine &Get();
 
-  void immediate_submit(std::function<void (VkCommandBuffer cmd)> && function);
+  GPUMeshBuffer uploadMesh(std::span<uint32_t> indices,
+                           std::span<Vertex> vertices);
+  void immediate_submit(std::function<void(VkCommandBuffer cmd)> &&function);
   // initializes everything in the engine
   void init();
 
@@ -110,8 +113,8 @@ public:
   void run();
 
 private:
-  AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
-  GPUMeshBuffer uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+  AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage,
+                                VmaMemoryUsage memoryUsage);
   void init_default_data();
   void init_imgui();
   void draw_imgui(VkCommandBuffer cmd, VkImageView image);
@@ -123,7 +126,6 @@ private:
   void init_descriptors();
   void init_mesh_pipeline();
   void init_background_pipeline();
-  void init_triangle_pipeline();
   void draw_background(VkCommandBuffer cmd);
   void draw_geometry(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);

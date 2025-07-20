@@ -21,7 +21,7 @@ add_executable (engine
 )
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
-target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_ENABLE_EXPERIMENTAL)
 target_include_directories(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(engine PRIVATE RESOURCEROOT="${PROJECT_SOURCE_DIR}")
 
