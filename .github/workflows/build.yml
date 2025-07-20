@@ -20,7 +20,7 @@ jobs:
       - name: Prepare Vulkan SDK
         uses: humbletim/setup-vulkan-sdk@v1.2.1
         with:
-          vulkan-query-version: latest
+          vulkan-query-version: 1.4.321.0
           vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang, SPIRV-Tools
           vulkan-use-cache: true
 
@@ -30,9 +30,16 @@ jobs:
           cmakeVersion: latestrc      # <--= optional, use the latest release candidate (notice the 'rc' suffix).
           ninjaVersion: latest        # <--= optional, use the latest release (non candidate).
 
-      - name: Configure CMake (Multi-Config)
-        run: |
-          cmake -B build -G "Ninja Multi-Config" 
+      - uses: seanmiddleditch/gha-setup-vsdevenv@v4
+        if: runner.os == 'Windows'
+
+      - name: Configure CMake (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cmake -B build -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
+
+      - name: Configure CMake (Non-Windows)
+        if: matrix.os != 'windows-latest'
+        run: cmake -B build -G "Ninja Multi-Config"
 
       - name: Build Release
         run: cmake --build build --config Release

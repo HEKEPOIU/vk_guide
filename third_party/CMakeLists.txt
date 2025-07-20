@@ -11,7 +11,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     vkbootstrap
     GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
-    GIT_TAG        v1.4.314
+    GIT_TAG        v1.4.321
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/vkbootstrap
     SYSTEM
 )
