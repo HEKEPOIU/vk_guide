@@ -13,11 +13,12 @@ add_subdirectory(third_party)
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
+set(RESOURCE_DST $<TARGET_FILE_DIR:engine>/resources)
+
+set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/export CACHE PATH "Install path" FORCE)
 add_subdirectory(src)
 
 find_program(GLSL_VALIDATOR glslc HINTS /usr/bin /usr/local/bin /opt/homebrew/bin/ $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
-
-
 
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES
@@ -40,7 +41,16 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 endforeach(GLSL)
 
 add_custom_target(
-    Shaders 
+    Shaders
     DEPENDS ${SPIRV_BINARY_FILES}
 )
 add_dependencies(engine Shaders)
+
+install(TARGETS engine
+  RUNTIME DESTINATION .
+  COMPONENT engine
+)
+install(DIRECTORY ${RESOURCE_DST}/
+  DESTINATION resources
+  COMPONENT engine
+)

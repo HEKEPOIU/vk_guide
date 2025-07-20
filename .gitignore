@@ -6,3 +6,4 @@ third_party/**/
 compile_commands.json
 .vscode
 /shaders/*.spv
+export

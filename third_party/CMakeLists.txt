@@ -46,7 +46,6 @@ FetchContent_Declare(
     SOURCE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/fastgltf
     SYSTEM
 )
-
 FetchContent_MakeAvailable(SDL vkbootstrap glm fmt vma fastgltf)
 
 
@@ -77,6 +76,6 @@ target_sources(imgui PRIVATE
   imgui/imgui_impl_sdl2.cpp
   )
 
-target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
+target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2-static)
 
 target_include_directories(stb_image INTERFACE stb_image)

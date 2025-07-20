@@ -1,4 +1,3 @@
-
 # Add source to this project's executable.
 add_executable (engine
   main.cpp
@@ -23,15 +22,18 @@ add_executable (engine
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_ENABLE_EXPERIMENTAL)
 target_include_directories(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_definitions(engine PRIVATE RESOURCEROOT="${PROJECT_SOURCE_DIR}")
+target_compile_definitions(engine
+  PRIVATE
+    $<$<CONFIG:Debug>:DEBUGRESOURCEROOT="${PROJECT_SOURCE_DIR}">
+)
 
-target_link_libraries(engine PUBLIC GPUOpen::VulkanMemoryAllocator glm Vulkan::Vulkan fmt::fmt stb_image SDL2::SDL2 vk-bootstrap::vk-bootstrap imgui fastgltf::fastgltf)
+add_custom_command(TARGET engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying assets and shaders..."
+    VERBATIM
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${PROJECT_SOURCE_DIR}/assets" ${RESOURCE_DST}/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${PROJECT_SOURCE_DIR}/shaders" ${RESOURCE_DST}/shaders
+)
+
+target_link_libraries(engine PUBLIC GPUOpen::VulkanMemoryAllocator glm Vulkan::Vulkan fmt::fmt stb_image SDL2::SDL2-static vk-bootstrap::vk-bootstrap imgui fastgltf::fastgltf)
 
 target_precompile_headers(engine PUBLIC <optional> <vector> <memory> <string> <vector> <unordered_map> <glm/mat4x4.hpp>  <glm/vec4.hpp> <vulkan/vulkan.h>)
-
-if(WIN32)
-    add_custom_command(TARGET engine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine>
-    COMMAND_EXPAND_LISTS
-  )
-endif()
