@@ -1,7 +1,6 @@
 #include "platform/windows.hpp"
 #include "platform/unix.hpp"
 #include <filesystem>
-#include <mach-o/dyld.h>
 
 namespace engine_constant {
 

@@ -18,7 +18,7 @@ set(RESOURCE_DST $<TARGET_FILE_DIR:engine>/resources)
 set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/export CACHE PATH "Install path" FORCE)
 add_subdirectory(src)
 
-find_program(GLSL_VALIDATOR glslc HINTS /usr/bin /usr/local/bin /opt/homebrew/bin/ $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
+find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin /opt/homebrew/bin/ $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES
@@ -35,7 +35,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   message(STATUS ${GLSL})
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} ${GLSL} -o ${SPIRV}
+    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
