@@ -75,6 +75,7 @@ public:
   AllocatedImage _drawImage;
   AllocatedImage _depthImage;
   VkExtent2D _drawExtent;
+  float rendrScale = 1.0f;
   DescriptorAllocator _globalDescriptorAllocator;
 
   VkFence _immFence;
@@ -90,6 +91,9 @@ public:
   VkPipeline _meshPipeline;
   VkPipelineLayout _meshPipelineLayout;
   GPUMeshBuffer rectangle;
+  VkDescriptorPool imguiPool;
+
+  bool resize_requested = false;
 
   std::vector<std::shared_ptr<MeshAsset>> testMeshes;
 
@@ -126,9 +130,14 @@ private:
   void init_descriptors();
   void init_mesh_pipeline();
   void init_background_pipeline();
+  void resize_swapchain();
   void draw_background(VkCommandBuffer cmd);
   void draw_geometry(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
-  void destory_swapchain();
+  void destroy_swapchain();
+
+  void destroy_imgui();
+  void destroy_syncObject();
+  void destroy_commands();
   void destroy_buffer(const AllocatedBuffer &buffer);
 };

@@ -74,7 +74,8 @@ void VulkanEngine::init() {
   // We initialize SDL and create a window with it.
   SDL_Init(SDL_INIT_VIDEO);
 
-  SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+  SDL_WindowFlags window_flags =
+      (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
   _window = SDL_CreateWindow("Vulkan Engine", SDL_WINDOWPOS_UNDEFINED,
                              SDL_WINDOWPOS_UNDEFINED, _windowExtent.width,
@@ -96,6 +97,14 @@ void VulkanEngine::init() {
   // everything went fine
   _isInitialized = true;
 }
+void VulkanEngine::destroy_imgui() {
+  ImGui_ImplVulkan_Shutdown();
+  ImGui_ImplSDL2_Shutdown();
+  ImGui::DestroyContext();
+
+  vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+}
+
 AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize,
                                             VkBufferUsageFlags usage,
                                             VmaMemoryUsage memoryUsage) {
@@ -192,7 +201,6 @@ void VulkanEngine::init_imgui() {
       .poolSizeCount = std::size(pool_sizes),
       .pPoolSizes = pool_sizes};
 
-  VkDescriptorPool imguiPool;
   VK_CHECK(vkCreateDescriptorPool(_device, &pool_info, nullptr, &imguiPool));
   ImGui::CreateContext();
   ImGui_ImplSDL2_InitForVulkan(_window);
@@ -214,11 +222,6 @@ void VulkanEngine::init_imgui() {
   };
   ImGui_ImplVulkan_Init(&init_info);
   ImGui_ImplVulkan_CreateFontsTexture();
-
-  _mainDeletionQueue.push_function([=, this]() {
-    ImGui_ImplVulkan_Shutdown();
-    vkDestroyDescriptorPool(_device, imguiPool, nullptr);
-  });
 };
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView image) {
@@ -322,6 +325,7 @@ void VulkanEngine::init_mesh_pipeline() {
   builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.set_multisample_none();
   builder.disable_blending();
+  // builder.enable_blending_additive();
   builder.enable_depthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
   builder.set_color_attachment_format(_drawImage.imageFormat);
   builder.set_depth_format(_depthImage.imageFormat);
@@ -336,7 +340,6 @@ void VulkanEngine::init_mesh_pipeline() {
     vkDestroyPipeline(_device, _meshPipeline, nullptr);
   });
 }
-
 
 void VulkanEngine::init_background_pipeline() {
 
@@ -544,6 +547,25 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
   _frames.resize(_swapchainImage.size());
 }
 
+void VulkanEngine::resize_swapchain() {
+  vkDeviceWaitIdle(_device);
+
+  destroy_syncObject();
+  destroy_commands();
+  destroy_swapchain();
+
+  _frames.clear();
+  int32_t w, h;
+  SDL_GetWindowSize(_window, &w, &h);
+  _windowExtent.width = w;
+  _windowExtent.height = h;
+  create_swapchain(_windowExtent.width, _windowExtent.height);
+  init_sync_structures();
+  init_commands();
+
+  resize_requested = false;
+}
+
 void VulkanEngine::init_swapchain() {
   create_swapchain(_windowExtent.width, _windowExtent.height);
   VkExtent3D drawImageExtent{
@@ -584,17 +606,19 @@ void VulkanEngine::init_swapchain() {
 
   _depthImage.imageFormat = VK_FORMAT_D32_SFLOAT;
   _depthImage.imageExtent = drawImageExtent;
-  VkImageUsageFlags depthImageUsages{}; 
+  VkImageUsageFlags depthImageUsages{};
   depthImageUsages |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
   VkImageCreateInfo dimg_info = vkinit::image_create_info(
       _depthImage.imageFormat, depthImageUsages, drawImageExtent);
 
-  vmaCreateImage(_allocator, &dimg_info, &rimg_allocinfo, &_depthImage.image, &_depthImage.allocation, nullptr);
+  vmaCreateImage(_allocator, &dimg_info, &rimg_allocinfo, &_depthImage.image,
+                 &_depthImage.allocation, nullptr);
   VkImageViewCreateInfo dview_info = vkinit::imageview_create_info(
       _depthImage.imageFormat, _depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-  VK_CHECK(vkCreateImageView(_device, &dview_info, nullptr, &_depthImage.imageView));
+  VK_CHECK(
+      vkCreateImageView(_device, &dview_info, nullptr, &_depthImage.imageView));
 
   _mainDeletionQueue.push_function([=, this]() {
     vkDestroyImageView(_device, _drawImage.imageView, nullptr);
@@ -604,7 +628,7 @@ void VulkanEngine::init_swapchain() {
   });
 }
 
-void VulkanEngine::destory_swapchain() {
+void VulkanEngine::destroy_swapchain() {
   vkDestroySwapchainKHR(_device, _swapchain, nullptr);
 
   for (auto &imgView : _swapchainImageViews) {
@@ -633,9 +657,6 @@ void VulkanEngine::init_commands() {
       vkinit::command_buffer_allocate_info(_immCommandPool, 1);
   VK_CHECK(
       vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_immCommandBuffer));
-
-  _mainDeletionQueue.push_function(
-      [=, this]() { vkDestroyCommandPool(_device, _immCommandPool, nullptr); });
 }
 
 void VulkanEngine::init_sync_structures() {
@@ -651,8 +672,6 @@ void VulkanEngine::init_sync_structures() {
                                &_frames[i]._swapchainSemaphore));
   }
   VK_CHECK(vkCreateFence(_device, &fenceInfo, nullptr, &_immFence));
-  _mainDeletionQueue.push_function(
-      [=, this]() { vkDestroyFence(_device, _immFence, nullptr); });
 }
 
 void VulkanEngine::immediate_submit(
@@ -675,19 +694,34 @@ void VulkanEngine::immediate_submit(
   VK_CHECK(vkWaitForFences(_device, 1, &_immFence, true, 9999999999));
 };
 
+void VulkanEngine::destroy_syncObject() {
+  for (int i = 0; i < get_frame_overlap(); i++) {
+    vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
+    vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
+    vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
+  }
+  vkDestroyFence(_device, _immFence, nullptr);
+}
+void VulkanEngine::destroy_commands() {
+  for (int i = 0; i < get_frame_overlap(); i++) {
+    vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+  }
+  vkDestroyCommandPool(_device, _immCommandPool, nullptr);
+}
+
 void VulkanEngine::cleanup() {
   if (_isInitialized) {
     vkDeviceWaitIdle(_device);
     for (int i = 0; i < get_frame_overlap(); i++) {
-      vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
-      vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
-      vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
-      vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
       _frames[i]._deletionQueue.flush();
     }
-    _mainDeletionQueue.flush();
 
-    destory_swapchain();
+    _mainDeletionQueue.flush();
+    destroy_imgui();
+    destroy_syncObject();
+    destroy_commands();
+    destroy_swapchain();
+
     vkDestroySurfaceKHR(_instance, _surface, nullptr);
     vkDestroyDevice(_device, nullptr);
 
@@ -741,10 +775,11 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd) {
 
   glm::mat4 view =
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
-  glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_drawExtent.width / (float)_drawExtent.height, 10000.f, 0.1f);
+  glm::mat4 projection = glm::perspective(
+      glm::radians(70.f), (float)_drawExtent.width / (float)_drawExtent.height,
+      10000.f, 0.1f);
 
   projection[1][1] *= -1;
-
 
   GPUDrawPushConstants push_constants{
       .worldMatrix = projection * view,
@@ -767,9 +802,19 @@ void VulkanEngine::draw() {
   VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
   uint32_t swapchainImageIndex;
-  VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
-                                 get_current_frame()._swapchainSemaphore,
-                                 VK_NULL_HANDLE, &swapchainImageIndex));
+  {
+    auto e = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
+                                   get_current_frame()._swapchainSemaphore,
+                                   VK_NULL_HANDLE, &swapchainImageIndex);
+    //https://community.khronos.org/t/vk-suboptimal-khr-is-it-safe-to-use-it-as-window-resize-detection/107848/5
+    //On MacOs, VK_ERROR_OUT_OF_DATE_KHR are never be return, always return VK_SUBOPTIMAL_KHR when resizeing window.
+    //On windows Nvidia driver, VK_SUBOPTIMAL_KHR is never be return, always return VK_ERROR_OUT_OF_DATE_KHR when resizeing window.
+    //On Linux seems same as MacOS? 
+    if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR) {
+      resize_requested = true;
+      return;
+    }
+  }
 
   // TODO: Rewrite the sync way.
   //  WIndows Nvidia FIFO will cause vkAcquireNextImageKHR impl not block
@@ -778,7 +823,6 @@ void VulkanEngine::draw() {
   //  so it will return same imageIndex in two frame.
   //  and current our synchronize way need to assert that swapchainImageIndex
   //  always +1 % totalImageSize. so we change windows presentMode to MAILBOX.
-  assert(swapchainImageIndex == _frameNumber % _frames.size());
 
   get_current_frame()._deletionQueue.flush();
 
@@ -788,8 +832,12 @@ void VulkanEngine::draw() {
   VkCommandBufferBeginInfo beginInfo = vkinit::command_buffer_begin_info(
       VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
-  _drawExtent.width = _drawImage.imageExtent.width;
-  _drawExtent.height = _drawImage.imageExtent.height;
+  _drawExtent.width =
+      std::min(_swapchainExtent.width, _drawImage.imageExtent.width) *
+      rendrScale;
+  _drawExtent.height =
+      std::min(_swapchainExtent.height, _drawImage.imageExtent.height) *
+      rendrScale;
   VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
   vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -843,7 +891,14 @@ void VulkanEngine::draw() {
       .pSwapchains = &_swapchain,
       .pImageIndices = &swapchainImageIndex,
   };
-  VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+  {
+    auto e = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+    if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR) {
+      resize_requested = true;
+      return;
+    }
+  }
+
   _frameNumber++;
 }
 
@@ -877,10 +932,14 @@ void VulkanEngine::run() {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
     }
+    if (resize_requested) {
+      resize_swapchain();
+    }
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
     if (ImGui::Begin("background")) {
+      ImGui::SliderFloat("Render Scale", &rendrScale, 0.3f, 1.0f);
       ComputeEffect &effect = backgroundEffects[currentEffectIndex];
       ImGui::Text("Selected effect: %s", effect.name);
       ImGui::SliderInt("Effect Index", &currentEffectIndex, 0,
