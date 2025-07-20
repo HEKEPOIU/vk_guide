@@ -1,17 +1,27 @@
 #include "platform/windows.hpp"
+#include "platform/unix.hpp"
 #include <filesystem>
+#include <mach-o/dyld.h>
 
 namespace engine_constant {
 
 inline std::filesystem::path abs_exe_directory() {
-#if defined(_MSC_VER)
+#if defined(_WIN32)
   wchar_t path[FILENAME_MAX] = {0};
   GetModuleFileNameW(nullptr, path, FILENAME_MAX);
   return std::filesystem::path(path).parent_path();
-#else
+#elif defined(__linux__) 
   char path[FILENAME_MAX];
   ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
-  return std::filesystem::path(path).parent_path()
+  return std::filesystem::path(std::string(path, (count > 0) ? count : 0));
+#elif defined(__APPLE__)
+  char path[FILENAME_MAX];
+  uint32_t size = sizeof(path);
+  if (_NSGetExecutablePath(path, &size) == 0) {
+    return std::filesystem::path(path).parent_path();
+  }
+  return {};
+
 #endif
 }
 
