@@ -895,7 +895,6 @@ void VulkanEngine::draw() {
     auto e = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
     if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR) {
       resize_requested = true;
-      return;
     }
   }
 
