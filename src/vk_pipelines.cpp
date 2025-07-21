@@ -201,7 +201,7 @@ void PipelineBuilder::enable_blending_alpha_blend() {
   _colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   _colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
   _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-  _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
