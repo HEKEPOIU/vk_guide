@@ -97,14 +97,6 @@ void VulkanEngine::init() {
   // everything went fine
   _isInitialized = true;
 }
-void VulkanEngine::destroy_imgui() {
-  ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplSDL2_Shutdown();
-  ImGui::DestroyContext();
-
-  vkDestroyDescriptorPool(_device, imguiPool, nullptr);
-}
-
 AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize,
                                             VkBufferUsageFlags usage,
                                             VmaMemoryUsage memoryUsage) {
@@ -201,6 +193,7 @@ void VulkanEngine::init_imgui() {
       .poolSizeCount = std::size(pool_sizes),
       .pPoolSizes = pool_sizes};
 
+  VkDescriptorPool imguiPool;
   VK_CHECK(vkCreateDescriptorPool(_device, &pool_info, nullptr, &imguiPool));
   ImGui::CreateContext();
   ImGui_ImplSDL2_InitForVulkan(_window);
@@ -222,6 +215,11 @@ void VulkanEngine::init_imgui() {
   };
   ImGui_ImplVulkan_Init(&init_info);
   ImGui_ImplVulkan_CreateFontsTexture();
+
+  _mainDeletionQueue.push_function([=, this]() {
+    ImGui_ImplVulkan_Shutdown();
+    vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+  });
 };
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView image) {
@@ -549,19 +547,14 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height) {
 
 void VulkanEngine::resize_swapchain() {
   vkDeviceWaitIdle(_device);
-
-  destroy_syncObject();
-  destroy_commands();
   destroy_swapchain();
 
-  _frames.clear();
+  fmt::println("Recreating Swapchain");
   int32_t w, h;
   SDL_GetWindowSize(_window, &w, &h);
   _windowExtent.width = w;
   _windowExtent.height = h;
   create_swapchain(_windowExtent.width, _windowExtent.height);
-  init_sync_structures();
-  init_commands();
 
   resize_requested = false;
 }
@@ -657,6 +650,9 @@ void VulkanEngine::init_commands() {
       vkinit::command_buffer_allocate_info(_immCommandPool, 1);
   VK_CHECK(
       vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_immCommandBuffer));
+
+  _mainDeletionQueue.push_function(
+      [=, this]() { vkDestroyCommandPool(_device, _immCommandPool, nullptr); });
 }
 
 void VulkanEngine::init_sync_structures() {
@@ -672,6 +668,8 @@ void VulkanEngine::init_sync_structures() {
                                &_frames[i]._swapchainSemaphore));
   }
   VK_CHECK(vkCreateFence(_device, &fenceInfo, nullptr, &_immFence));
+  _mainDeletionQueue.push_function(
+      [=, this]() { vkDestroyFence(_device, _immFence, nullptr); });
 }
 
 void VulkanEngine::immediate_submit(
@@ -694,34 +692,19 @@ void VulkanEngine::immediate_submit(
   VK_CHECK(vkWaitForFences(_device, 1, &_immFence, true, 9999999999));
 };
 
-void VulkanEngine::destroy_syncObject() {
-  for (int i = 0; i < get_frame_overlap(); i++) {
-    vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
-    vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
-    vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
-  }
-  vkDestroyFence(_device, _immFence, nullptr);
-}
-void VulkanEngine::destroy_commands() {
-  for (int i = 0; i < get_frame_overlap(); i++) {
-    vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
-  }
-  vkDestroyCommandPool(_device, _immCommandPool, nullptr);
-}
-
 void VulkanEngine::cleanup() {
   if (_isInitialized) {
     vkDeviceWaitIdle(_device);
     for (int i = 0; i < get_frame_overlap(); i++) {
+      vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+      vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
+      vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
+      vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
       _frames[i]._deletionQueue.flush();
     }
-
     _mainDeletionQueue.flush();
-    destroy_imgui();
-    destroy_syncObject();
-    destroy_commands();
-    destroy_swapchain();
 
+    destroy_swapchain();
     vkDestroySurfaceKHR(_instance, _surface, nullptr);
     vkDestroyDevice(_device, nullptr);
 
@@ -806,12 +789,28 @@ void VulkanEngine::draw() {
     auto e = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
                                    get_current_frame()._swapchainSemaphore,
                                    VK_NULL_HANDLE, &swapchainImageIndex);
-    //https://community.khronos.org/t/vk-suboptimal-khr-is-it-safe-to-use-it-as-window-resize-detection/107848/5
-    //On MacOs, VK_ERROR_OUT_OF_DATE_KHR are never be return, always return VK_SUBOPTIMAL_KHR when resizeing window.
-    //On windows Nvidia driver, VK_SUBOPTIMAL_KHR is never be return, always return VK_ERROR_OUT_OF_DATE_KHR when resizeing window.
-    //On Linux seems same as MacOS? 
     if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR) {
+      // need to handle _renderFence are been signaled, so we need to reset it.
+      // and need to waite _swapchainSemaphore complete.
+      VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
+      VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+      VkCommandBufferBeginInfo beginInfo = vkinit::command_buffer_begin_info(
+          VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+      VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+      VkCommandBufferSubmitInfo cmdinfo =
+          vkinit::command_buffer_submit_info(cmd);
+      VK_CHECK(vkEndCommandBuffer(cmd));
+      VkSemaphoreSubmitInfo waitInfo = vkinit::semaphore_submit_info(
+          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+          get_current_frame()._swapchainSemaphore);
+
+      VkSubmitInfo2 submit = vkinit::submit_info(&cmdinfo, nullptr, &waitInfo);
+      VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit,
+                              get_current_frame()._renderFence));
       resize_requested = true;
+      _frameNumber++;
       return;
     }
   }
@@ -823,6 +822,7 @@ void VulkanEngine::draw() {
   //  so it will return same imageIndex in two frame.
   //  and current our synchronize way need to assert that swapchainImageIndex
   //  always +1 % totalImageSize. so we change windows presentMode to MAILBOX.
+  assert(swapchainImageIndex == _frameNumber % _frames.size());
 
   get_current_frame()._deletionQueue.flush();
 
