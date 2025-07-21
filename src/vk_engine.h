@@ -136,8 +136,5 @@ private:
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destroy_swapchain();
 
-  void destroy_imgui();
-  void destroy_syncObject();
-  void destroy_commands();
   void destroy_buffer(const AllocatedBuffer &buffer);
 };
