@@ -789,6 +789,11 @@ void VulkanEngine::draw() {
     auto e = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
                                    get_current_frame()._swapchainSemaphore,
                                    VK_NULL_HANDLE, &swapchainImageIndex);
+
+    //https://community.khronos.org/t/vk-suboptimal-khr-is-it-safe-to-use-it-as-window-resize-detection/107848/5
+    //On MacOs, VK_ERROR_OUT_OF_DATE_KHR are never be return, always return VK_SUBOPTIMAL_KHR when resizeing window.
+    //On windows Nvidia driver, VK_SUBOPTIMAL_KHR is never be return, always return VK_ERROR_OUT_OF_DATE_KHR when resizeing window.
+    //On Linux seems same as MacOS? 
     if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR) {
       // need to handle _renderFence are been signaled, so we need to reset it.
       // and need to waite _swapchainSemaphore complete.
@@ -810,7 +815,6 @@ void VulkanEngine::draw() {
       VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit,
                               get_current_frame()._renderFence));
       resize_requested = true;
-      _frameNumber++;
       return;
     }
   }
@@ -822,7 +826,6 @@ void VulkanEngine::draw() {
   //  so it will return same imageIndex in two frame.
   //  and current our synchronize way need to assert that swapchainImageIndex
   //  always +1 % totalImageSize. so we change windows presentMode to MAILBOX.
-  assert(swapchainImageIndex == _frameNumber % _frames.size());
 
   get_current_frame()._deletionQueue.flush();
 
