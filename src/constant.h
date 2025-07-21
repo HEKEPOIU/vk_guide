@@ -12,7 +12,7 @@ inline std::filesystem::path abs_exe_directory() {
 #elif defined(__linux__) 
   char path[FILENAME_MAX];
   ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
-  return std::filesystem::path(std::string(path, (count > 0) ? count : 0));
+  return std::filesystem::path(std::string(path, (count > 0) ? count : 0)).parent_path();
 #elif defined(__APPLE__)
   char path[FILENAME_MAX];
   uint32_t size = sizeof(path);
@@ -20,7 +20,6 @@ inline std::filesystem::path abs_exe_directory() {
     return std::filesystem::path(path).parent_path();
   }
   return {};
-
 #endif
 }
 
