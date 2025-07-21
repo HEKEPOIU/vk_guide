@@ -66,6 +66,15 @@ struct GPUMeshBuffer {
   VkDeviceAddress VertexBufferAddress;
 };
 
+struct GPUSceneData {
+  glm::mat4 view;
+  glm::mat4 proj;
+  glm::mat4 viewProj;
+  glm::vec4 ambientColor;
+  glm::vec4 sunlightDirection;
+  glm::vec4 sunlightColor;
+};
+
 struct GPUDrawPushConstants {
   glm::mat4 worldMatrix;
   VkDeviceAddress vertexBuffer;

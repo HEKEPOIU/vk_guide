@@ -34,11 +34,14 @@ struct DeletionQueue {
 };
 
 struct FrameData {
-  VkCommandPool _commandPool;
-  VkCommandBuffer _mainCommandBuffer;
   VkSemaphore _swapchainSemaphore, _renderSemaphore;
   VkFence _renderFence;
+
+  VkCommandPool _commandPool;
+  VkCommandBuffer _mainCommandBuffer;
+
   DeletionQueue _deletionQueue;
+  DescriptorAllocatorGrowable _frameDescriptors;
 };
 
 #define SecondsInNano(x) (x * 1000000000LL)
@@ -92,6 +95,9 @@ public:
   VkPipelineLayout _meshPipelineLayout;
   GPUMeshBuffer rectangle;
   VkDescriptorPool imguiPool;
+
+  GPUSceneData sceneData;
+  VkDescriptorSetLayout _gpuSceenDataDescriptorLayout;
 
   bool resize_requested = false;
 
