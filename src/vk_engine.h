@@ -87,6 +87,7 @@ public:
 
   VkDescriptorSet _drawImageDescriptors;
   VkDescriptorSetLayout _drawImageDescriptorLayout;
+  VkDescriptorSetLayout _singleImageDescriptorLayout;
 
   VkPipeline _gradientPipeline;
   VkPipelineLayout _gradientPipelineLayout;
@@ -98,6 +99,14 @@ public:
 
   GPUSceneData sceneData;
   VkDescriptorSetLayout _gpuSceenDataDescriptorLayout;
+
+  AllocatedImage _whiteImage;
+  AllocatedImage _blackImage;
+  AllocatedImage _greyImage;
+  AllocatedImage _errorCheckerBoardImage;
+
+  VkSampler _defaultSamplerLinear;
+  VkSampler _defaultSamplerNearest;
 
   bool resize_requested = false;
 
@@ -128,6 +137,11 @@ private:
   void init_default_data();
   void init_imgui();
   void draw_imgui(VkCommandBuffer cmd, VkImageView image);
+  AllocatedImage create_image(VkExtent3D size, VkFormat format,
+                              VkImageUsageFlags usage, bool mipmapped = false);
+  AllocatedImage create_image(void *data, VkExtent3D size, VkFormat format,
+                              VkImageUsageFlags usage, bool mipmapped = false);
+
   void init_pipelines();
   void init_vulkan();
   void init_swapchain();
@@ -141,6 +155,6 @@ private:
   void draw_geometry(VkCommandBuffer cmd);
   void create_swapchain(uint32_t wigth, uint32_t height);
   void destroy_swapchain();
-
+  void destroy_image(const AllocatedImage &image);
   void destroy_buffer(const AllocatedBuffer &buffer);
 };
