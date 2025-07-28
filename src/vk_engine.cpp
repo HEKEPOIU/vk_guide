@@ -316,6 +316,7 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView image) {
 void VulkanEngine::init_pipelines() {
   init_background_pipeline();
   init_mesh_pipeline();
+  metalRoughMaterial.build_pipelines(this);
 }
 
 void VulkanEngine::init_default_data() {
@@ -393,7 +394,32 @@ void VulkanEngine::init_default_data() {
   sampler_info.minFilter = VK_FILTER_NEAREST;
   vkCreateSampler(_device, &sampler_info, nullptr, &_defaultSamplerNearest);
 
+  GLTFMatallic_Roughness::MaterialResources materialResources;
+
+  materialResources.colorImage = _whiteImage;
+  materialResources.colorSampler = _defaultSamplerLinear;
+  materialResources.metalRoughImage = _whiteImage;
+  materialResources.metalRoughSampler = _defaultSamplerLinear;
+
+  AllocatedBuffer materialConstants = create_buffer(
+      sizeof(GLTFMatallic_Roughness::MaterialConstants),
+      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+  GLTFMatallic_Roughness::MaterialConstants *sceneUniformData =
+      (GLTFMatallic_Roughness::MaterialConstants *)
+          materialConstants.allocation->GetMappedData();
+
+  sceneUniformData->colorFactors = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+  sceneUniformData->metal_rough_factors = glm::vec4(1.0f, 0.5f, 0.0f, 0.0f);
+  materialResources.dataBuffer = materialConstants.buffer;
+  materialResources.dataBufferOffset = 0;
+
+  defaultData = metalRoughMaterial.write_material(
+      _device, MaterialPass::MainColor, materialResources,
+      _globalDescriptorAllocator);
+
   _mainDeletionQueue.push_function([=, this]() {
+    destroy_buffer(materialConstants);
     vkDestroySampler(_device, _defaultSamplerLinear, nullptr);
     vkDestroySampler(_device, _defaultSamplerNearest, nullptr);
     destroy_image(_whiteImage);
@@ -528,10 +554,13 @@ void VulkanEngine::init_background_pipeline() {
 }
 
 void VulkanEngine::init_descriptors() {
-  std::vector<DescriptorAllocator::PoolSizeRatio> sizes{
-      {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1}};
+  std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes{
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1},
+      {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 1},
+      {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 1},
+  };
 
-  _globalDescriptorAllocator.init_pool(_device, 10, sizes);
+  _globalDescriptorAllocator.init(_device, 10, sizes);
 
   {
     DescriptorLayoutBuilder builder;
@@ -952,6 +981,115 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd) {
                    testMeshes[2]->surfaces[0].startIndex, 0, 0);
 
   vkCmdEndRendering(cmd);
+}
+
+void GLTFMatallic_Roughness::build_pipelines(VulkanEngine *engine) {
+  VkShaderModule vertexShader;
+  VkShaderModule fragmentShader;
+  auto fragAbsPath = (engine_constant::GetShaderRoot() / "mesh_frag.spv");
+  auto vertAbsPath = (engine_constant::GetShaderRoot() / "mesh_vert.spv");
+  if (!vkutil::load_shader_module(engine->_device, fragAbsPath.string(),
+                                  &fragmentShader)) {
+    fmt::print(stderr,
+               "Error when building the fragment shader, Can't load "
+               "{} \n",
+               fragAbsPath.string());
+  }
+  if (!vkutil::load_shader_module(engine->_device, vertAbsPath.string(),
+                                  &vertexShader)) {
+    fmt::print(stderr,
+               "Error when building the vertex shader, Can't load "
+               "{} \n",
+               vertAbsPath.string());
+  }
+
+  VkPushConstantRange matrixRange{
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .offset = 0,
+      .size = sizeof(GPUDrawPushConstants),
+  };
+
+  DescriptorLayoutBuilder layoutBuilder;
+  layoutBuilder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  layoutBuilder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  layoutBuilder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  materialLayout =
+      layoutBuilder.build(engine->_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+  VkDescriptorSetLayout layouts[] = {engine->_gpuSceenDataDescriptorLayout,
+                                     materialLayout};
+
+  VkPipelineLayoutCreateInfo pipeline_layout_info =
+      vkinit::pipeline_layout_create_info();
+  pipeline_layout_info.pPushConstantRanges = &matrixRange;
+  pipeline_layout_info.pushConstantRangeCount = 1;
+  pipeline_layout_info.pSetLayouts = layouts;
+  pipeline_layout_info.setLayoutCount = 2;
+
+  VkPipelineLayout newLayout;
+  VK_CHECK(vkCreatePipelineLayout(engine->_device, &pipeline_layout_info,
+                                  nullptr, &newLayout));
+  opaquePipeline.layout = newLayout;
+  transparentPipeline.layout = newLayout;
+
+  vkutil::PipelineBuilder builder;
+  builder._pipelineLayout = newLayout;
+  builder.set_shader(vertexShader, fragmentShader);
+  builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+  builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.set_multisample_none();
+  builder.disable_blending();
+  builder.enable_depthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+  builder.set_color_attachment_format(engine->_drawImage.imageFormat);
+  builder.set_depth_format(engine->_depthImage.imageFormat);
+  opaquePipeline.pipeline = builder.build_pipeline(engine->_device);
+  assert(opaquePipeline.pipeline);
+
+  builder.enable_blending_additive();
+  builder.enable_depthtest(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+
+  transparentPipeline.pipeline = builder.build_pipeline(engine->_device);
+  assert(transparentPipeline.pipeline);
+
+  vkDestroyShaderModule(engine->_device, vertexShader, nullptr);
+  vkDestroyShaderModule(engine->_device, fragmentShader, nullptr);
+
+  engine->_mainDeletionQueue.push_function([=, this]() {
+    vkDestroyDescriptorSetLayout(engine->_device, materialLayout, nullptr);
+    vkDestroyPipelineLayout(engine->_device, newLayout, nullptr);
+    vkDestroyPipeline(engine->_device, opaquePipeline.pipeline, nullptr);
+    vkDestroyPipeline(engine->_device, transparentPipeline.pipeline, nullptr);
+  });
+}
+
+MaterialInstance GLTFMatallic_Roughness::write_material(
+    VkDevice device, MaterialPass pass, const MaterialResources &resources,
+    DescriptorAllocatorGrowable &descriptorAllocator) {
+  MaterialInstance matData;
+  matData.passType = pass;
+  if (pass == MaterialPass::Transparent) {
+    matData.pipeline = &transparentPipeline;
+  } else {
+    matData.pipeline = &opaquePipeline;
+  }
+  matData.materialSet = descriptorAllocator.allocate(device, materialLayout);
+
+  writer.clear();
+  writer.write_buffer(0, resources.dataBuffer, sizeof(MaterialConstants),
+                      resources.dataBufferOffset,
+                      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  writer.write_image(1, resources.colorImage.imageView, resources.colorSampler,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  writer.write_image(2, resources.metalRoughImage.imageView,
+                     resources.metalRoughSampler,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+  writer.update_set(device, matData.materialSet);
+
+  return matData;
 }
 
 void VulkanEngine::draw() {

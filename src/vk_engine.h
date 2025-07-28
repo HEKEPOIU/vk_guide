@@ -44,6 +44,38 @@ struct FrameData {
   DescriptorAllocatorGrowable _frameDescriptors;
 };
 
+struct GLTFMatallic_Roughness {
+  MaterialPipeline opaquePipeline;
+  MaterialPipeline transparentPipeline;
+
+  VkDescriptorSetLayout materialLayout;
+
+  struct MaterialConstants { // 256
+    glm::vec4 colorFactors;
+    glm::vec4 metal_rough_factors;
+    //for alignment
+    glm::vec4 extra[14];
+  };
+
+  struct MaterialResources {
+    AllocatedImage colorImage;
+    VkSampler colorSampler;
+    AllocatedImage metalRoughImage;
+    VkSampler metalRoughSampler;
+    VkBuffer dataBuffer;
+    uint32_t dataBufferOffset;
+  };
+  DescriptorWriter writer;
+
+  void build_pipelines(VulkanEngine *engine);
+  void clear_resources(VkDevice device);
+
+  MaterialInstance
+  write_material(VkDevice device, MaterialPass pass,
+                 const MaterialResources &resources,
+                 DescriptorAllocatorGrowable &descriptorAllocator);
+};
+
 #define SecondsInNano(x) (x * 1000000000LL)
 
 class VulkanEngine {
@@ -79,7 +111,7 @@ public:
   AllocatedImage _depthImage;
   VkExtent2D _drawExtent;
   float rendrScale = 1.0f;
-  DescriptorAllocator _globalDescriptorAllocator;
+  DescriptorAllocatorGrowable  _globalDescriptorAllocator;
 
   VkFence _immFence;
   VkCommandBuffer _immCommandBuffer;
@@ -107,6 +139,9 @@ public:
 
   VkSampler _defaultSamplerLinear;
   VkSampler _defaultSamplerNearest;
+
+  MaterialInstance defaultData;
+  GLTFMatallic_Roughness metalRoughMaterial;
 
   bool resize_requested = false;
 

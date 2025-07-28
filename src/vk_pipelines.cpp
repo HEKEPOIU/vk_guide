@@ -192,7 +192,7 @@ void PipelineBuilder::enable_blending_alpha_blend() {
 // outColor = srcColor * srcColorBlendFactor <Op> dstColor * dstColorBlendFactor
 // outColor = srcColor * srcAlpha + dstColor * (1 - srcAlpha)
 // outAlpah = srcAlpha + dstAlpha * 0
-//
+
   _colorBlendAttachment.colorWriteMask =
       VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
