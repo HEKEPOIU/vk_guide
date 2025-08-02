@@ -399,7 +399,8 @@ void VulkanEngine::init_default_data() {
     newNode->localTransform = glm::mat4(1.0f);
     newNode->worldTransform = glm::mat4(1.0f);
     for (auto &s : newNode->mesh->surfaces) {
-      s.material = std::make_shared<GLTFMaterial>(defaultData);
+      s.material = std::make_shared<GLTFMaterial>();
+      s.material->data = defaultData;
     }
 
     loadedNodes[m->name] = newNode;
