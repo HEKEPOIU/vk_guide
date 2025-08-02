@@ -53,7 +53,7 @@ struct GLTFMatallic_Roughness {
   struct MaterialConstants { // 256
     glm::vec4 colorFactors;
     glm::vec4 metal_rough_factors;
-    //for alignment
+    // for alignment
     glm::vec4 extra[14];
   };
 
@@ -74,6 +74,15 @@ struct GLTFMatallic_Roughness {
   write_material(VkDevice device, MaterialPass pass,
                  const MaterialResources &resources,
                  DescriptorAllocatorGrowable &descriptorAllocator);
+};
+
+struct DrawContext {
+  std::vector<RenderObject> OpaqueSurfaces;
+};
+
+struct MeshNode : public Node {
+  std::shared_ptr<MeshAsset> mesh;
+  virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 };
 
 #define SecondsInNano(x) (x * 1000000000LL)
@@ -110,8 +119,8 @@ public:
   AllocatedImage _drawImage;
   AllocatedImage _depthImage;
   VkExtent2D _drawExtent;
-  float rendrScale = 1.0f;
-  DescriptorAllocatorGrowable  _globalDescriptorAllocator;
+  float renderScale = 1.0f;
+  DescriptorAllocatorGrowable _globalDescriptorAllocator;
 
   VkFence _immFence;
   VkCommandBuffer _immCommandBuffer;
@@ -119,14 +128,10 @@ public:
 
   VkDescriptorSet _drawImageDescriptors;
   VkDescriptorSetLayout _drawImageDescriptorLayout;
-  VkDescriptorSetLayout _singleImageDescriptorLayout;
 
   VkPipeline _gradientPipeline;
   VkPipelineLayout _gradientPipelineLayout;
 
-  VkPipeline _meshPipeline;
-  VkPipelineLayout _meshPipelineLayout;
-  GPUMeshBuffer rectangle;
   VkDescriptorPool imguiPool;
 
   GPUSceneData sceneData;
@@ -137,16 +142,17 @@ public:
   AllocatedImage _greyImage;
   AllocatedImage _errorCheckerBoardImage;
 
+  DrawContext mainDrawContext;
+  std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
+
   VkSampler _defaultSamplerLinear;
   VkSampler _defaultSamplerNearest;
 
-  MaterialInstance defaultData;
   GLTFMatallic_Roughness metalRoughMaterial;
 
   bool resize_requested = false;
 
   std::vector<std::shared_ptr<MeshAsset>> testMeshes;
-
   struct SDL_Window *_window{nullptr};
 
   static VulkanEngine &Get();
@@ -177,13 +183,13 @@ private:
   AllocatedImage create_image(void *data, VkExtent3D size, VkFormat format,
                               VkImageUsageFlags usage, bool mipmapped = false);
 
+  void update_scene();
   void init_pipelines();
   void init_vulkan();
   void init_swapchain();
   void init_commands();
   void init_sync_structures();
   void init_descriptors();
-  void init_mesh_pipeline();
   void init_background_pipeline();
   void resize_swapchain();
   void draw_background(VkCommandBuffer cmd);

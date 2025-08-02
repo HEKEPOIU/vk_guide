@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-#include <vk_mem_alloc.h>
 #include "vk_enum_string_helper.h"
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <fmt/core.h>
@@ -29,14 +29,13 @@
     }                                                                          \
   } while (0)
 
-#define RESULT_CHECK(r, errfmt)                                               \
+#define RESULT_CHECK(r, errfmt)                                                \
   do {                                                                         \
     if (!r) {                                                                  \
-      fmt::println(stderr, errfmt, r.error().message());                      \
+      fmt::println(stderr, errfmt, r.error().message());                       \
       std::abort();                                                            \
     }                                                                          \
   } while (0)
-
 
 struct AllocatedImage {
   VkImage image;
@@ -85,32 +84,47 @@ struct MaterialPipeline {
   VkPipelineLayout layout;
 };
 
-enum class MaterialPass: uint8_t {
-  MainColor,
-  Transparent,
-  Other
-};
+enum class MaterialPass : uint8_t { MainColor, Transparent, Other };
 
 struct MaterialInstance {
-  MaterialPipeline* pipeline;
+  MaterialPipeline *pipeline;
   VkDescriptorSet materialSet;
   MaterialPass passType;
 };
 
-
-struct RnderObject {
+struct RenderObject {
   uint32_t indexCount;
   uint32_t firstIndex;
   VkBuffer indexBuffer;
 
-  MaterialInstance* material;
+  MaterialInstance *material;
   glm::mat4 transform;
   VkDeviceAddress vertexBufferAddress;
 };
 
-
 struct DrawContext;
 
 class IRenderable {
-  virtual void Draw(const glm::mat4& topMatrix, DrawContext& ctx) = 0;
+  virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) = 0;
+};
+
+struct Node : public IRenderable {
+  std::weak_ptr<Node> parent;
+  std::vector<std::shared_ptr<Node>> children;
+
+  glm::mat4 localTransform;
+  glm::mat4 worldTransform;
+
+  void refreshTransform(const glm::mat4 &parentMatrix) {
+    worldTransform = parentMatrix * localTransform;
+    for (auto &c : children) {
+      c->refreshTransform(worldTransform);
+    }
+  }
+
+  virtual void Draw(const glm::mat4& topMatrix, DrawContext& ctx) {
+    for (auto &c : children) {
+      c->Draw(worldTransform, ctx);
+    }
+  }
 };
